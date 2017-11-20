@@ -1,0 +1,92 @@
+import tensorflow as tf
+from sklearn.utils import shuffle
+from sklearn.model_selection import train_test_split
+import os
+from PIL import Image
+import matplotlib.pyplot as plt
+import numpy as np
+
+
+EPOCHS = 3
+BATCH_SIZE = 2
+
+
+X = []
+y = []
+
+
+#method for arranging the paintings will be different to the function below
+str_to_num = {"class1":0, "class2":1, "class3":2}
+
+folder_1 = 'directory1'
+folder_2 = 'directory2'
+folder_3 = 'directory3'
+
+count = 0
+def create_data(folder, name):
+    for i in os.listdir(folder):
+            image = Image.open(os.path.join(folder, i))
+            image = Image.Image.resize(image, [100, 100])
+            x = np.array(image)
+            X.append(x)
+            y.append(str_to_num[name])
+          
+            
+create_data(gnome_folder, 'class1')
+create_data(drone_folder, 'class2')
+create_data(home_folder, 'class3')
+
+#splitting data into train and test set (30% for test)
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3)
+
+#Setting up placeholders to feed data through when the model is run
+image_place = tf.placeholder(tf.float32, shape = [None, 100, 100, 3])
+label_place = tf.placeholder(tf.int32, shape = [None,])
+one_hot = tf.one_hot(label_place, 3)
+one_hot = tf.cast(one_hot, tf.float32)
+
+#basic CNN structure
+input_layer = tf.reshape(image_place, shape=[-1,100,100,3])
+conv1 = tf.layers.conv2d(input_layer, filters=30, kernel_size=[3,3], padding="SAME", activation=tf.nn.relu)
+pool1 = tf.layers.max_pooling2d(conv1, pool_size=[2,2], strides=2)
+flatten = tf.reshape(pool1, [-1, (50*50*30)])
+fc1 = tf.layers.dense(flatten, units=1024)
+dropout = tf.layers.dropout(fc1, rate=0.5)
+logits = tf.layers.dense(dropout, units=3)
+
+
+#setting up loss function and optimisation
+loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=logits, labels=one_hot))
+optimiser = tf.train.AdamOptimizer()
+training_op = optimiser.minimize(loss)
+
+#getting accuracy score for evaluation 
+correct_pred = tf.equal(tf.argmax(one_hot, 1), tf.argmax(logits, 1))
+accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
+
+#defining variable to save the model - essentially the all the weights and biases that have been trained
+saver = tf.train.Saver()
+
+#running the model
+with tf.Session() as sess:
+    sess.run(tf.global_variables_initializer())
+    
+    for i in range(EPOCHS):
+        X_train, y_train = shuffle(X_train, y_train)
+        #creating batches to ensure computation isn't too demanding, and reducing overfitting byu shuffling each time
+        for b_start in range(0, len(X_train), BATCH_SIZE):
+            b_end = b_start + BATCH_SIZE
+            batch_X, batch_y = X_train[b_start:b_end], y_train[b_start:b_end]
+            
+            #running the model, reporting accuracy scores for both train and test batches on every epoch
+            sess.run(training_op, feed_dict={image_place:batch_X, label_place:batch_y})
+            train_accuracy = sess.run(accuracy, feed_dict={image_place:X_train, label_place:y_train})
+            test_accuracy = sess.run(accuracy, feed_dict={image_place:X_test, label_place:y_test})
+            
+            #printing progress, accuracy and saving the model
+            print("\nEpoch: {}".format(i))
+            print("Batch: {} out of {}".format(b_start, len(X_train)))
+            print("...")
+            print("Train accuracy: {a: 0.8f}".format(a=train_accuracy))
+            print("Test accuracy: {a: 0.8f}".format(a=test_accuracy))
+            saver.save(sess, './model_file_name')
